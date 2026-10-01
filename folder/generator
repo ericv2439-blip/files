@@ -1,0 +1,1949 @@
+import sys
+import math
+from pathlib import Path
+
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QFont, QKeySequence, QShortcut
+from PySide6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QGridLayout,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QListWidget,
+    QListWidgetItem,
+    QLineEdit,
+    QPushButton,
+    QLabel,
+    QMessageBox,
+    QInputDialog,
+    QScrollArea,
+    QSplitter,
+    QFrame,
+    QSizePolicy,
+)
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+APP_NAME = "Matrix Object Manager"
+
+# Root directory where the application's folders/files live.
+# Change this if you want another location.
+ROOT_DIR = Path.home() / "MatrixData"
+
+MATRIX_EXTENSION = ".txt"
+
+
+# ============================================================
+# VALUE CONVERSION
+# ============================================================
+
+def parse_value(text):
+    """
+    Convert text into int/float when possible.
+    Otherwise keep it as a string.
+
+    Examples:
+
+        "10"      -> 10
+        "-4"      -> -4
+        "3.14"    -> 3.14
+        "hello"   -> "hello"
+        "3e5"     -> 300000.0
+    """
+
+    text = text.strip()
+
+    if text == "":
+        return None
+
+    try:
+        if text.lower().startswith(("0x", "-0x", "+0x")):
+            return int(text, 16)
+
+        if any(c in text.lower() for c in [".", "e"]):
+            return float(text)
+
+        return int(text)
+
+    except ValueError:
+        return text
+
+
+def value_to_text(value):
+    """
+    Convert Python values back to text for the matrix file.
+    """
+
+    if value is None:
+        return ""
+
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return format(value, ".15g")
+
+    return str(value)
+
+
+# ============================================================
+# MATRIX FILE FORMAT
+# ============================================================
+
+def load_matrix_file(path):
+    """
+    Read a matrix file.
+
+    Format:
+
+        1 2 3
+        4 5 6
+
+        10 20
+        30 40
+
+        100 200 300
+
+    Blank lines separate matrices.
+    Lines separate rows.
+    Whitespace separates variables.
+    """
+
+    matrices = []
+
+    if not path.exists():
+        return matrices
+
+    current_matrix = []
+
+    try:
+        with path.open("r", encoding="utf-8") as file:
+            for raw_line in file:
+                line = raw_line.rstrip("\n\r")
+
+                # Blank line = end of matrix
+                if not line.strip():
+                    if current_matrix:
+                        matrices.append(current_matrix)
+                        current_matrix = []
+
+                    continue
+
+                values = line.split()
+
+                row = [parse_value(value) for value in values]
+
+                current_matrix.append(row)
+
+        # File may not end with a blank line.
+        if current_matrix:
+            matrices.append(current_matrix)
+
+    except OSError as error:
+        raise RuntimeError(f"Could not read file:\n{error}")
+
+    return matrices
+
+
+def save_matrix_file(path, matrices):
+    """
+    Save all matrices using the simple text format.
+    """
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with path.open("w", encoding="utf-8") as file:
+
+            for matrix_index, matrix in enumerate(matrices):
+
+                for row in matrix:
+                    values = [
+                        value_to_text(value)
+                        for value in row
+                    ]
+
+                    # Remove empty trailing variables.
+                    while values and values[-1] == "":
+                        values.pop()
+
+                    if values:
+                        file.write(" ".join(values))
+
+                    file.write("\n")
+
+                # Blank line separates matrices.
+                if matrix_index < len(matrices) - 1:
+                    file.write("\n")
+
+    except OSError as error:
+        raise RuntimeError(f"Could not save file:\n{error}")
+
+
+# ============================================================
+# MATRIX CELL
+# ============================================================
+
+class MatrixCell(QLineEdit):
+    """
+    One editable variable inside a matrix.
+    """
+
+    enterPressed = Signal(object)
+    ctrlEnterPressed = Signal(object)
+
+    def __init__(self, value="", parent=None):
+        super().__init__(parent)
+
+        self.setText(value_to_text(value))
+
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.setMinimumWidth(80)
+        self.setMaximumWidth(160)
+        self.setMinimumHeight(38)
+
+        self.setFont(QFont("Segoe UI", 11))
+
+        self.setStyleSheet("""
+            QLineEdit {
+                background: #151821;
+                color: #e9edf5;
+                border: 1px solid #343b4d;
+                border-radius: 7px;
+                padding: 5px 8px;
+            }
+
+            QLineEdit:focus {
+                border: 2px solid #667eea;
+                background: #1b2030;
+            }
+        """)
+
+    def keyPressEvent(self, event):
+
+        if (
+            event.key() == Qt.Key.Key_Return
+            or event.key() == Qt.Key.Key_Enter
+        ):
+
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                self.ctrlEnterPressed.emit(self)
+            else:
+                self.enterPressed.emit(self)
+
+            return
+
+        super().keyPressEvent(event)
+
+
+# ============================================================
+# MATRIX WIDGET
+# ============================================================
+
+class MatrixWidget(QFrame):
+    """
+    Displays and edits one matrix.
+
+    Supports jagged matrices:
+
+        1 2 3
+        4 5
+        6 7 8 9
+    """
+
+    matrixFinished = Signal(object)
+    matrixChanged = Signal()
+
+    def __init__(self, matrix, matrix_number, parent=None):
+        super().__init__(parent)
+
+        self.matrix_number = matrix_number
+
+        # Deep copy.
+        self.matrix = [
+            list(row)
+            for row in matrix
+        ]
+
+        self.cells = []
+
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+
+        self.setStyleSheet("""
+            QFrame {
+                background: #0e1118;
+                border: 1px solid #252b38;
+                border-radius: 12px;
+            }
+        """)
+
+        self.outer_layout = QVBoxLayout(self)
+        self.outer_layout.setContentsMargins(14, 12, 14, 14)
+        self.outer_layout.setSpacing(10)
+
+        # ----------------------------------------------------
+        # HEADER
+        # ----------------------------------------------------
+
+        header = QHBoxLayout()
+
+        self.title = QLabel(
+            f"Matrix {self.matrix_number}"
+        )
+
+        self.title.setFont(
+            QFont("Segoe UI", 13, QFont.Weight.Bold)
+        )
+
+        self.title.setStyleSheet(
+            "color: #dce3f1; border: none;"
+        )
+
+        header.addWidget(self.title)
+
+        header.addStretch()
+
+        self.info_label = QLabel()
+        self.info_label.setStyleSheet(
+            "color: #727b8f; border: none;"
+        )
+
+        header.addWidget(self.info_label)
+
+        self.outer_layout.addLayout(header)
+
+        # ----------------------------------------------------
+        # SCROLLABLE MATRIX AREA
+        # ----------------------------------------------------
+
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+
+        self.matrix_container = QWidget()
+
+        self.grid = QGridLayout(
+            self.matrix_container
+        )
+
+        self.grid.setContentsMargins(5, 5, 5, 5)
+        self.grid.setHorizontalSpacing(6)
+        self.grid.setVerticalSpacing(6)
+
+        self.scroll.setWidget(
+            self.matrix_container
+        )
+
+        self.outer_layout.addWidget(
+            self.scroll,
+            1
+        )
+
+        # ----------------------------------------------------
+        # BUTTONS
+        # ----------------------------------------------------
+
+        button_layout = QHBoxLayout()
+
+        add_cell_button = QPushButton(
+            "+ Variable"
+        )
+
+        add_row_button = QPushButton(
+            "+ Row"
+        )
+
+        finish_button = QPushButton(
+            "Finish Matrix"
+        )
+
+        add_cell_button.clicked.connect(
+            self.add_variable
+        )
+
+        add_row_button.clicked.connect(
+            self.add_row
+        )
+
+        finish_button.clicked.connect(
+            self.finish_matrix
+        )
+
+        for button in (
+            add_cell_button,
+            add_row_button,
+            finish_button,
+        ):
+            button.setMinimumHeight(34)
+
+        button_layout.addWidget(add_cell_button)
+        button_layout.addWidget(add_row_button)
+
+        button_layout.addStretch()
+
+        button_layout.addWidget(finish_button)
+
+        self.outer_layout.addLayout(
+            button_layout
+        )
+
+        # Keyboard shortcut.
+        shortcut = QShortcut(
+            QKeySequence("Ctrl+Return"),
+            self
+        )
+
+        shortcut.activated.connect(
+            self.finish_matrix
+        )
+
+        self.rebuild()
+
+    # --------------------------------------------------------
+    # REBUILD GUI
+    # --------------------------------------------------------
+
+    def rebuild(self, focus_cell=None):
+
+        while self.grid.count():
+            item = self.grid.takeAt(0)
+
+            widget = item.widget()
+
+            if widget:
+                widget.deleteLater()
+
+        self.cells.clear()
+
+        if not self.matrix:
+            self.matrix = [[]]
+
+        # Guarantee at least one row.
+        if len(self.matrix) == 0:
+            self.matrix.append([])
+
+        # Guarantee a first variable for a new matrix.
+        if len(self.matrix) == 1 and len(self.matrix[0]) == 0:
+            self.matrix[0].append("")
+
+        max_columns = max(
+            (len(row) for row in self.matrix),
+            default=1
+        )
+
+        # Column labels.
+        for column in range(max_columns):
+            label = QLabel(
+                f"C{column + 1}"
+            )
+
+            label.setAlignment(
+                Qt.AlignmentFlag.AlignCenter
+            )
+
+            label.setStyleSheet("""
+                QLabel {
+                    color: #687286;
+                    border: none;
+                    font-size: 10px;
+                }
+            """)
+
+            self.grid.addWidget(
+                label,
+                0,
+                column + 1
+            )
+
+        # Rows.
+        for row_index, row in enumerate(self.matrix):
+
+            row_label = QLabel(
+                f"R{row_index + 1}"
+            )
+
+            row_label.setAlignment(
+                Qt.AlignmentFlag.AlignCenter
+            )
+
+            row_label.setStyleSheet("""
+                QLabel {
+                    color: #687286;
+                    border: none;
+                    font-size: 10px;
+                }
+            """)
+
+            self.grid.addWidget(
+                row_label,
+                row_index + 1,
+                0
+            )
+
+            row_cells = []
+
+            for column_index, value in enumerate(row):
+
+                cell = MatrixCell(
+                    value,
+                    self
+                )
+
+                cell.enterPressed.connect(
+                    self.handle_enter
+                )
+
+                cell.ctrlEnterPressed.connect(
+                    self.handle_ctrl_enter
+                )
+
+                cell.textChanged.connect(
+                    self.matrixChanged.emit
+                )
+
+                self.grid.addWidget(
+                    cell,
+                    row_index + 1,
+                    column_index + 1
+                )
+
+                row_cells.append(cell)
+
+                self.cells.append(
+                    (
+                        row_index,
+                        column_index,
+                        cell
+                    )
+                )
+
+                self.apply_cell_color(
+                    cell,
+                    row_index,
+                    column_index,
+                    max_columns
+                )
+
+        self.info_label.setText(
+            f"{len(self.matrix)} rows"
+        )
+
+        if focus_cell is not None:
+            focus_cell.setFocus()
+            focus_cell.selectAll()
+
+    # --------------------------------------------------------
+    # COLORING
+    # --------------------------------------------------------
+
+    def apply_cell_color(
+        self,
+        cell,
+        row,
+        column,
+        max_columns
+    ):
+
+        max_rows = max(
+            len(self.matrix) - 1,
+            1
+        )
+
+        x = (
+            column / max(max_columns - 1, 1)
+        )
+
+        y = (
+            row / max_rows
+        )
+
+        # Position-based visual color.
+        #
+        # Left = darker
+        # Right = more green
+        # Top = less blue
+        # Bottom = more blue
+
+        red = 20
+
+        green = int(
+            35 + (x * 80)
+        )
+
+        blue = int(
+            45 + (y * 75)
+        )
+
+        border_green = min(
+            green + 15,
+            255
+        )
+
+        border_blue = min(
+            blue + 15,
+            255
+        )
+
+        cell.setStyleSheet(f"""
+            QLineEdit {{
+                background: rgb(
+                    {red},
+                    {green},
+                    {blue}
+                );
+
+                color: #edf2ff;
+
+                border: 1px solid rgb(
+                    52,
+                    {border_green},
+                    {border_blue}
+                );
+
+                border-radius: 7px;
+                padding: 5px 8px;
+            }}
+
+            QLineEdit:focus {{
+                border: 2px solid #9baaff;
+
+                background: rgb(
+                    {red + 5},
+                    {min(green + 15, 255)},
+                    {min(blue + 15, 255)}
+                );
+            }}
+        """)
+
+    # --------------------------------------------------------
+    # FIND CELL
+    # --------------------------------------------------------
+
+    def find_cell(self, widget):
+
+        for index, (
+            row,
+            column,
+            cell
+        ) in enumerate(self.cells):
+
+            if cell is widget:
+                return index, row, column
+
+        return None
+
+    # --------------------------------------------------------
+    # ENTER
+    # --------------------------------------------------------
+
+    def handle_enter(self, widget):
+
+        location = self.find_cell(widget)
+
+        if location is None:
+            return
+
+        index, row, column = location
+
+        # ----------------------------------------------------
+        # EMPTY CELL
+        # ----------------------------------------------------
+
+        if widget.text().strip() == "":
+
+            # If there is another variable in the current row,
+            # simply move to it.
+            if index + 1 < len(self.cells):
+
+                next_cell = self.cells[index + 1][2]
+
+                next_cell.setFocus()
+                next_cell.selectAll()
+
+                return
+
+            # Otherwise an empty final variable means:
+            #
+            # END MATRIX
+            #
+            self.finish_matrix()
+            return
+
+        # ----------------------------------------------------
+        # NORMAL CELL
+        # ----------------------------------------------------
+
+        if index + 1 < len(self.cells):
+
+            next_cell = self.cells[index + 1][2]
+
+            next_cell.setFocus()
+            next_cell.selectAll()
+
+            return
+
+        # Last variable.
+        #
+        # Enter at the end finishes this matrix.
+        self.finish_matrix()
+
+    # --------------------------------------------------------
+    # CTRL + ENTER
+    # --------------------------------------------------------
+
+    def handle_ctrl_enter(self, widget=None):
+
+        self.finish_matrix()
+
+    # --------------------------------------------------------
+    # ADD VARIABLE
+    # --------------------------------------------------------
+
+    def add_variable(self):
+
+        if not self.matrix:
+            self.matrix.append([])
+
+        self.matrix[-1].append("")
+
+        self.rebuild()
+
+        # Focus newly created variable.
+        if self.cells:
+            self.cells[-1][2].setFocus()
+
+    # --------------------------------------------------------
+    # ADD ROW
+    # --------------------------------------------------------
+
+    def add_row(self):
+
+        self.matrix.append(
+            [""]
+        )
+
+        self.rebuild()
+
+        if self.cells:
+            self.cells[-1][2].setFocus()
+
+    # --------------------------------------------------------
+    # EXTRACT CURRENT DATA
+    # --------------------------------------------------------
+
+    def get_matrix(self):
+
+        result = []
+
+        for row in self.matrix:
+
+            result.append(
+                list(row)
+            )
+
+        for row_index, row in enumerate(result):
+
+            for column_index in range(
+                len(row)
+            ):
+
+                matching_cell = None
+
+                for (
+                    r,
+                    c,
+                    cell
+                ) in self.cells:
+
+                    if (
+                        r == row_index
+                        and c == column_index
+                    ):
+                        matching_cell = cell
+                        break
+
+                if matching_cell:
+                    row[column_index] = parse_value(
+                        matching_cell.text()
+                    )
+
+        # Remove empty trailing cells.
+        for row in result:
+
+            while row and row[-1] is None:
+                row.pop()
+
+        # Remove completely empty trailing rows.
+        while result and not result[-1]:
+            result.pop()
+
+        return result
+
+    # --------------------------------------------------------
+    # FINISH
+    # --------------------------------------------------------
+
+    def finish_matrix(self):
+
+        self.matrix = self.get_matrix()
+
+        self.matrixChanged.emit()
+
+        self.matrixFinished.emit(
+            self
+        )
+
+        # Don't steal focus aggressively.
+        self.clearFocus()
+
+
+# ============================================================
+# MAIN WINDOW
+# ============================================================
+
+class MatrixManager(QMainWindow):
+
+    def __init__(self):
+
+        super().__init__()
+
+        self.setWindowTitle(
+            APP_NAME
+        )
+
+        self.resize(
+            1450,
+            850
+        )
+
+        ROOT_DIR.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
+        self.current_folder = ROOT_DIR
+        self.current_file = None
+
+        self.matrices = []
+
+        self.matrix_widgets = []
+
+        self.build_ui()
+
+        self.refresh_folders()
+
+        self.refresh_files()
+
+    # ========================================================
+    # UI
+    # ========================================================
+
+    def build_ui(self):
+
+        central = QWidget()
+
+        self.setCentralWidget(
+            central
+        )
+
+        main_layout = QVBoxLayout(
+            central
+        )
+
+        main_layout.setContentsMargins(
+            10,
+            10,
+            10,
+            10
+        )
+
+        main_layout.setSpacing(8)
+
+        # ----------------------------------------------------
+        # TOP BAR
+        # ----------------------------------------------------
+
+        top = QHBoxLayout()
+
+        self.path_label = QLabel(
+            str(ROOT_DIR)
+        )
+
+        self.path_label.setStyleSheet("""
+            QLabel {
+                color: #8993a8;
+                padding: 4px;
+            }
+        """)
+
+        top.addWidget(
+            self.path_label
+        )
+
+        top.addStretch()
+
+        self.new_file_button = QPushButton(
+            "New Matrix File"
+        )
+
+        self.new_file_button.clicked.connect(
+            self.create_matrix_file
+        )
+
+        top.addWidget(
+            self.new_file_button
+        )
+
+        self.save_button = QPushButton(
+            "Save"
+        )
+
+        self.save_button.clicked.connect(
+            self.save_current_file
+        )
+
+        top.addWidget(
+            self.save_button
+        )
+
+        main_layout.addLayout(
+            top
+        )
+
+        # ----------------------------------------------------
+        # SPLITTER
+        # ----------------------------------------------------
+
+        splitter = QSplitter(
+            Qt.Orientation.Horizontal
+        )
+
+        main_layout.addWidget(
+            splitter,
+            1
+        )
+
+        # ====================================================
+        # LEFT SIDE
+        # ====================================================
+
+        left = QWidget()
+
+        left_layout = QVBoxLayout(
+            left
+        )
+
+        left_layout.setContentsMargins(
+            4,
+            4,
+            4,
+            4
+        )
+
+        # ----------------------------------------------------
+        # FOLDERS
+        # ----------------------------------------------------
+
+        folder_title = QLabel(
+            "FOLDERS"
+        )
+
+        folder_title.setFont(
+            QFont(
+                "Segoe UI",
+                10,
+                QFont.Weight.Bold
+            )
+        )
+
+        folder_title.setStyleSheet(
+            "color: #758098;"
+        )
+
+        left_layout.addWidget(
+            folder_title
+        )
+
+        self.folder_tree = QTreeWidget()
+
+        self.folder_tree.setHeaderHidden(
+            True
+        )
+
+        self.folder_tree.itemClicked.connect(
+            self.folder_clicked
+        )
+
+        left_layout.addWidget(
+            self.folder_tree,
+            1
+        )
+
+        folder_buttons = QHBoxLayout()
+
+        new_folder_button = QPushButton(
+            "New Folder"
+        )
+
+        delete_folder_button = QPushButton(
+            "Delete Folder"
+        )
+
+        new_folder_button.clicked.connect(
+            self.create_folder
+        )
+
+        delete_folder_button.clicked.connect(
+            self.delete_folder
+        )
+
+        folder_buttons.addWidget(
+            new_folder_button
+        )
+
+        folder_buttons.addWidget(
+            delete_folder_button
+        )
+
+        left_layout.addLayout(
+            folder_buttons
+        )
+
+        # ----------------------------------------------------
+        # FILES
+        # ----------------------------------------------------
+
+        file_title = QLabel(
+            "MATRIX FILES"
+        )
+
+        file_title.setFont(
+            QFont(
+                "Segoe UI",
+                10,
+                QFont.Weight.Bold
+            )
+        )
+
+        file_title.setStyleSheet(
+            "color: #758098;"
+        )
+
+        left_layout.addWidget(
+            file_title
+        )
+
+        self.file_list = QListWidget()
+
+        self.file_list.itemDoubleClicked.connect(
+            self.file_double_clicked
+        )
+
+        left_layout.addWidget(
+            self.file_list,
+            1
+        )
+
+        splitter.addWidget(
+            left
+        )
+
+        # ====================================================
+        # RIGHT SIDE
+        # ====================================================
+
+        right = QWidget()
+
+        right_layout = QVBoxLayout(
+            right
+        )
+
+        right_layout.setContentsMargins(
+            4,
+            4,
+            4,
+            4
+        )
+
+        # ----------------------------------------------------
+        # FILE TITLE
+        # ----------------------------------------------------
+
+        self.file_title = QLabel(
+            "No matrix file open"
+        )
+
+        self.file_title.setFont(
+            QFont(
+                "Segoe UI",
+                15,
+                QFont.Weight.Bold
+            )
+        )
+
+        self.file_title.setStyleSheet(
+            "color: #e3e8f3;"
+        )
+
+        right_layout.addWidget(
+            self.file_title
+        )
+
+        # ----------------------------------------------------
+        # MATRIX COUNT
+        # ----------------------------------------------------
+
+        self.matrix_count_label = QLabel(
+            "Matrices: 0"
+        )
+
+        self.matrix_count_label.setStyleSheet(
+            "color: #758098;"
+        )
+
+        right_layout.addWidget(
+            self.matrix_count_label
+        )
+
+        # ----------------------------------------------------
+        # MATRIX SCROLL AREA
+        # ----------------------------------------------------
+
+        self.matrix_scroll = QScrollArea()
+
+        self.matrix_scroll.setWidgetResizable(
+            True
+        )
+
+        self.matrix_scroll.setFrameShape(
+            QFrame.Shape.NoFrame
+        )
+
+        self.matrix_container = QWidget()
+
+        self.matrix_layout = QVBoxLayout(
+            self.matrix_container
+        )
+
+        self.matrix_layout.setContentsMargins(
+            4,
+            8,
+            4,
+            20
+        )
+
+        self.matrix_layout.setSpacing(
+            12
+        )
+
+        self.matrix_layout.addStretch()
+
+        self.matrix_scroll.setWidget(
+            self.matrix_container
+        )
+
+        right_layout.addWidget(
+            self.matrix_scroll,
+            1
+        )
+
+        # ----------------------------------------------------
+        # MATRIX BUTTONS
+        # ----------------------------------------------------
+
+        bottom = QHBoxLayout()
+
+        add_matrix_button = QPushButton(
+            "+ New Matrix"
+        )
+
+        add_matrix_button.clicked.connect(
+            self.add_matrix
+        )
+
+        bottom.addWidget(
+            add_matrix_button
+        )
+
+        bottom.addStretch()
+
+        right_layout.addLayout(
+            bottom
+        )
+
+        splitter.addWidget(
+            right
+        )
+
+        splitter.setSizes(
+            [330, 1050]
+        )
+
+        # ----------------------------------------------------
+        # GLOBAL STYLE
+        # ----------------------------------------------------
+
+        self.setStyleSheet("""
+            QMainWindow {
+                background: #090b10;
+            }
+
+            QWidget {
+                background: #090b10;
+                color: #dce2ee;
+                font-family: "Segoe UI";
+            }
+
+            QTreeWidget,
+            QListWidget {
+                background: #0e1118;
+                border: 1px solid #252b38;
+                border-radius: 8px;
+                padding: 4px;
+                outline: none;
+            }
+
+            QTreeWidget::item,
+            QListWidget::item {
+                padding: 7px;
+                border-radius: 5px;
+            }
+
+            QTreeWidget::item:selected,
+            QListWidget::item:selected {
+                background: #293149;
+            }
+
+            QPushButton {
+                background: #171c27;
+                color: #dce3f1;
+                border: 1px solid #30384a;
+                border-radius: 7px;
+                padding: 7px 12px;
+            }
+
+            QPushButton:hover {
+                background: #20283a;
+                border-color: #596887;
+            }
+
+            QPushButton:pressed {
+                background: #101521;
+            }
+
+            QScrollBar:vertical {
+                background: #0b0e14;
+                width: 12px;
+            }
+
+            QScrollBar::handle:vertical {
+                background: #303849;
+                border-radius: 5px;
+            }
+
+            QScrollBar:horizontal {
+                background: #0b0e14;
+                height: 12px;
+            }
+
+            QScrollBar::handle:horizontal {
+                background: #303849;
+                border-radius: 5px;
+            }
+        """)
+
+    # ========================================================
+    # FOLDER TREE
+    # ========================================================
+
+    def refresh_folders(self):
+
+        self.folder_tree.clear()
+
+        root_item = QTreeWidgetItem(
+            [
+                "📁 MatrixData"
+            ]
+        )
+
+        root_item.setData(
+            0,
+            Qt.ItemDataRole.UserRole,
+            str(ROOT_DIR)
+        )
+
+        self.folder_tree.addTopLevelItem(
+            root_item
+        )
+
+        self.populate_folder_tree(
+            root_item,
+            ROOT_DIR
+        )
+
+        root_item.setExpanded(
+            True
+        )
+
+    def populate_folder_tree(
+        self,
+        parent_item,
+        directory
+    ):
+
+        try:
+            folders = sorted(
+                [
+                    path
+                    for path in directory.iterdir()
+                    if path.is_dir()
+                ],
+                key=lambda p: p.name.lower()
+            )
+
+        except OSError:
+            return
+
+        for folder in folders:
+
+            item = QTreeWidgetItem(
+                [
+                    f"📁 {folder.name}"
+                ]
+            )
+
+            item.setData(
+                0,
+                Qt.ItemDataRole.UserRole,
+                str(folder)
+            )
+
+            parent_item.addChild(
+                item
+            )
+
+            self.populate_folder_tree(
+                item,
+                folder
+            )
+
+    # ========================================================
+    # FOLDER CLICK
+    # ========================================================
+
+    def folder_clicked(
+        self,
+        item,
+        column
+    ):
+
+        path_string = item.data(
+            0,
+            Qt.ItemDataRole.UserRole
+        )
+
+        if not path_string:
+            return
+
+        path = Path(
+            path_string
+        )
+
+        if not path.exists():
+            return
+
+        self.current_folder = path
+
+        self.path_label.setText(
+            str(path)
+        )
+
+        self.refresh_files()
+
+    # ========================================================
+    # FILE LIST
+    # ========================================================
+
+    def refresh_files(self):
+
+        self.file_list.clear()
+
+        if not self.current_folder.exists():
+            return
+
+        try:
+            files = sorted(
+                [
+                    path
+                    for path in self.current_folder.iterdir()
+                    if (
+                        path.is_file()
+                        and path.suffix.lower()
+                        == MATRIX_EXTENSION
+                    )
+                ],
+                key=lambda p: p.name.lower()
+            )
+
+        except OSError:
+            return
+
+        for file_path in files:
+
+            item = QListWidgetItem(
+                f"📄 {file_path.name}"
+            )
+
+            item.setData(
+                Qt.ItemDataRole.UserRole,
+                str(file_path)
+            )
+
+            self.file_list.addItem(
+                item
+            )
+
+    # ========================================================
+    # CREATE FOLDER
+    # ========================================================
+
+    def create_folder(self):
+
+        name, accepted = QInputDialog.getText(
+            self,
+            "New Folder",
+            "Folder name:"
+        )
+
+        if not accepted:
+            return
+
+        name = name.strip()
+
+        if not name:
+            return
+
+        # Prevent path traversal.
+        if (
+            "/" in name
+            or "\\" in name
+            or name in (".", "..")
+        ):
+            QMessageBox.warning(
+                self,
+                "Invalid Folder Name",
+                "The folder name cannot contain / or \\."
+            )
+
+            return
+
+        folder = (
+            self.current_folder
+            / name
+        )
+
+        if folder.exists():
+
+            QMessageBox.warning(
+                self,
+                "Folder Exists",
+                "That folder already exists."
+            )
+
+            return
+
+        try:
+
+            folder.mkdir(
+                parents=False,
+                exist_ok=False
+            )
+
+        except OSError as error:
+
+            QMessageBox.critical(
+                self,
+                "Could Not Create Folder",
+                str(error)
+            )
+
+            return
+
+        self.refresh_folders()
+
+        self.refresh_files()
+
+    # ========================================================
+    # DELETE FOLDER
+    # ========================================================
+
+    def delete_folder(self):
+
+        if self.current_folder == ROOT_DIR:
+
+            QMessageBox.warning(
+                self,
+                "Cannot Delete Root",
+                "The MatrixData root folder cannot be deleted."
+            )
+
+            return
+
+        try:
+            contents = list(
+                self.current_folder.iterdir()
+            )
+
+        except OSError as error:
+
+            QMessageBox.critical(
+                self,
+                "Error",
+                str(error)
+            )
+
+            return
+
+        # IMPORTANT:
+        # Only empty folders can be deleted.
+        if contents:
+
+            QMessageBox.warning(
+                self,
+                "Folder Is Not Empty",
+                "Only completely empty folders can be deleted."
+            )
+
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Delete Folder",
+            (
+                f"Delete empty folder?\n\n"
+                f"{self.current_folder.name}"
+            ),
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No
+        )
+
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        folder_to_delete = self.current_folder
+
+        parent = folder_to_delete.parent
+
+        try:
+            folder_to_delete.rmdir()
+
+        except OSError as error:
+
+            QMessageBox.critical(
+                self,
+                "Could Not Delete Folder",
+                str(error)
+            )
+
+            return
+
+        self.current_folder = parent
+
+        self.path_label.setText(
+            str(parent)
+        )
+
+        self.refresh_folders()
+        self.refresh_files()
+
+    # ========================================================
+    # CREATE MATRIX FILE
+    # ========================================================
+
+    def create_matrix_file(self):
+
+        filename, accepted = QInputDialog.getText(
+            self,
+            "New Matrix File",
+            "File name:"
+        )
+
+        if not accepted:
+            return
+
+        filename = filename.strip()
+
+        if not filename:
+            return
+
+        # Automatically add extension.
+        if not filename.lower().endswith(
+            MATRIX_EXTENSION
+        ):
+            filename += MATRIX_EXTENSION
+
+        # Prevent path traversal.
+        if (
+            "/" in filename
+            or "\\" in filename
+        ):
+
+            QMessageBox.warning(
+                self,
+                "Invalid File Name",
+                "The file name cannot contain / or \\."
+            )
+
+            return
+
+        path = (
+            self.current_folder
+            / filename
+        )
+
+        if path.exists():
+
+            QMessageBox.warning(
+                self,
+                "File Exists",
+                "That matrix file already exists."
+            )
+
+            return
+
+        try:
+
+            save_matrix_file(
+                path,
+                []
+            )
+
+        except RuntimeError as error:
+
+            QMessageBox.critical(
+                self,
+                "Could Not Create File",
+                str(error)
+            )
+
+            return
+
+        self.refresh_files()
+
+        self.open_file(
+            path
+        )
+
+    # ========================================================
+    # OPEN FILE
+    # ========================================================
+
+    def file_double_clicked(
+        self,
+        item
+    ):
+
+        path_string = item.data(
+            Qt.ItemDataRole.UserRole
+        )
+
+        if not path_string:
+            return
+
+        self.open_file(
+            Path(path_string)
+        )
+
+    def open_file(self, path):
+
+        try:
+
+            self.matrices = load_matrix_file(
+                path
+            )
+
+        except RuntimeError as error:
+
+            QMessageBox.critical(
+                self,
+                "Could Not Open File",
+                str(error)
+            )
+
+            return
+
+        self.current_file = path
+
+        self.file_title.setText(
+            path.name
+        )
+
+        self.render_matrices()
+
+    # ========================================================
+    # RENDER MATRICES
+    # ========================================================
+
+    def render_matrices(self):
+
+        # Remove old widgets.
+        while self.matrix_layout.count():
+
+            item = self.matrix_layout.takeAt(0)
+
+            widget = item.widget()
+
+            if widget:
+                widget.deleteLater()
+
+        self.matrix_widgets.clear()
+
+        self.matrix_count_label.setText(
+            f"Matrices: {len(self.matrices)}"
+        )
+
+        # Existing matrices.
+        for index, matrix in enumerate(
+            self.matrices
+        ):
+
+            widget = MatrixWidget(
+                matrix,
+                index + 1
+            )
+
+            widget.matrixFinished.connect(
+                self.matrix_finished
+            )
+
+            widget.matrixChanged.connect(
+                self.live_matrix_changed
+            )
+
+            self.matrix_widgets.append(
+                widget
+            )
+
+            self.matrix_layout.addWidget(
+                widget
+            )
+
+        # If the file has no matrices,
+        # show an empty state.
+        if not self.matrices:
+
+            empty_label = QLabel(
+                "This file contains no matrices.\n"
+                "Press '+ New Matrix' to begin."
+            )
+
+            empty_label.setAlignment(
+                Qt.AlignmentFlag.AlignCenter
+            )
+
+            empty_label.setStyleSheet("""
+                QLabel {
+                    color: #667086;
+                    padding: 80px;
+                    font-size: 15px;
+                }
+            """)
+
+            self.matrix_layout.addWidget(
+                empty_label
+            )
+
+        self.matrix_layout.addStretch()
+
+    # ========================================================
+    # MATRIX CHANGED
+    # ========================================================
+
+    def live_matrix_changed(self):
+
+        # Keep the model synchronized with
+        # whatever the user currently typed.
+        self.sync_from_widgets()
+
+    # ========================================================
+    # SYNC GUI -> PYTHON
+    # ========================================================
+
+    def sync_from_widgets(self):
+
+        if not self.matrix_widgets:
+            return
+
+        self.matrices = []
+
+        for widget in self.matrix_widgets:
+
+            self.matrices.append(
+                widget.get_matrix()
+            )
+
+        self.matrix_count_label.setText(
+            f"Matrices: {len(self.matrices)}"
+        )
+
+    # ========================================================
+    # MATRIX FINISHED
+    # ========================================================
+
+    def matrix_finished(
+        self,
+        widget
+    ):
+
+        self.sync_from_widgets()
+
+        # Automatically save.
+        self.save_current_file(
+            silent=True
+        )
+
+        # Focus the next matrix if it exists.
+        try:
+            index = self.matrix_widgets.index(
+                widget
+            )
+
+        except ValueError:
+            return
+
+        next_index = index + 1
+
+        if (
+            next_index
+            < len(self.matrix_widgets)
+        ):
+
+            next_widget = (
+                self.matrix_widgets[next_index]
+            )
+
+            if next_widget.cells:
+
+                next_widget.cells[0][2].setFocus()
+
+    # ========================================================
+    # ADD MATRIX
+    # ========================================================
+
+    def add_matrix(self):
+
+        if self.current_file is None:
+
+            QMessageBox.information(
+                self,
+                "No File",
+                "Open or create a matrix file first."
+            )
+
+            return
+
+        # Save current GUI state first.
+        self.sync_from_widgets()
+
+        new_matrix = [
+            [""]
+        ]
+
+        self.matrices.append(
+            new_matrix
+        )
+
+        self.render_matrices()
+
+        # Focus first variable of new matrix.
+        if self.matrix_widgets:
+
+            widget = self.matrix_widgets[-1]
+
+            if widget.cells:
+                widget.cells[0][2].setFocus()
+
+        self.save_current_file(
+            silent=True
+        )
+
+    # ========================================================
+    # SAVE
+    # ========================================================
+
+    def save_current_file(
+        self,
+        checked=False,
+        silent=False
+    ):
+
+        if self.current_file is None:
+
+            if not silent:
+
+                QMessageBox.information(
+                    self,
+                    "No File",
+                    "There is no matrix file open."
+                )
+
+            return
+
+        self.sync_from_widgets()
+
+        try:
+
+            save_matrix_file(
+                self.current_file,
+                self.matrices
+            )
+
+        except RuntimeError as error:
+
+            QMessageBox.critical(
+                self,
+                "Could Not Save",
+                str(error)
+            )
+
+            return
+
+        if not silent:
+
+            self.statusBar().showMessage(
+                "Saved.",
+                2500
+            )
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+
+    app = QApplication(
+        sys.argv
+    )
+
+    app.setApplicationName(
+        APP_NAME
+    )
+
+    window = MatrixManager()
+
+    window.show()
+
+    sys.exit(
+        app.exec()
+    )
+
+
+if __name__ == "__main__":
+    main()
