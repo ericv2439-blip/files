@@ -1,0 +1,63 @@
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <iostream>
+#include <string>
+
+#pragma comment(lib, "ws2_32.lib")
+
+int main(int argc, char* argv[])
+{
+    if (argc < 2) {
+        std::cout << "Usage: send.exe \"message\"\n";
+        return 1;
+    }
+
+    const char* HOST = "192.168.1.50";
+    const int PORT = 8765;
+
+    std::string message = argv[1];
+
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
+        return 1;
+
+    SOCKET sock = socket(AF_INET, SOCK_STREAM, 0);
+
+    if (sock == INVALID_SOCKET) {
+        WSACleanup();
+        return 1;
+    }
+
+    sockaddr_in server{};
+    server.sin_family = AF_INET;
+    server.sin_port = htons(PORT);
+
+    inet_pton(
+        AF_INET,
+        HOST,
+        &server.sin_addr
+    );
+
+    if (connect(
+        sock,
+        reinterpret_cast<sockaddr*>(&server),
+        sizeof(server)
+    ) == SOCKET_ERROR) {
+
+        closesocket(sock);
+        WSACleanup();
+        return 1;
+    }
+
+    send(
+        sock,
+        message.c_str(),
+        static_cast<int>(message.size()),
+        0
+    );
+
+    closesocket(sock);
+    WSACleanup();
+
+    return 0;
+}
