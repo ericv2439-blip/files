@@ -1,0 +1,155 @@
+Yes. The idea would be to make the **C++ TCP receiver also act as a tiny `.mtx` command interpreter**.
+
+I would structure it like this:
+
+```text
+TCP receiver
+     │
+     │ receives string
+     ▼
+"example.mtx"
+     │
+     ▼
+check whether string ends with ".mtx"
+     │
+     ├── NO  → treat as an ordinary string
+     │
+     └── YES
+          │
+          ▼
+     create directory
+          │
+          ▼
+     MatrixData/example/
+```
+
+The important distinction is that **receiving `example.mtx` would not create/write the matrix file itself**.
+
+It would only establish a storage location for that matrix.
+
+For example:
+
+```text
+MatrixData/
+│
+├── example/
+│
+├── physics/
+│
+└── test/
+```
+
+Then later, commands could refer to that matrix:
+
+```text
+example.mtx
+```
+
+and the receiver knows:
+
+```text
+MatrixData/example/
+```
+
+is where its matrices belong.
+
+### How I would make the detection work
+
+The receiver gets arbitrary strings:
+
+```text
+coffee.make(3)
+hello
+example.mtx
+physics.mtx
+```
+
+It checks:
+
+```text
+Does the received string end with ".mtx"?
+```
+
+If not:
+
+```text
+ordinary command/string
+```
+
+If yes:
+
+```text
+extract filename
+remove ".mtx"
+sanitize the name
+create MatrixData/<name>/
+```
+
+So:
+
+```text
+"physics.mtx"
+```
+
+becomes:
+
+```text
+MatrixData/
+└── physics/
+```
+
+### Why a directory instead of immediately creating `physics.mtx`?
+
+Because this gives your `.mtx` concept room to become a **matrix container** rather than just another text file.
+
+For example, eventually:
+
+```text
+MatrixData/
+└── physics/
+    ├── matrix_001.txt
+    ├── matrix_002.txt
+    ├── matrix_003.txt
+    └── ...
+```
+
+Or you could later decide that the directory itself represents the `.mtx` object.
+
+That fits particularly well with the Matrix Manager you just posted, because your existing manager already understands:
+
+* folders
+* matrix files
+* multiple matrices inside a file
+* rows
+* variables
+* automatic saving
+
+The receiver would therefore be the **network entry point**, while the Matrix Manager remains the **editor/storage interface**.
+
+One thing I'd change from the simple design, though: I would make the protocol distinguish **`.mtx` creation commands from ordinary strings explicitly**, rather than blindly treating every string ending in `.mtx` as a command. Otherwise something like:
+
+```text
+"please open example.mtx"
+```
+
+wouldn't match, but a message like:
+
+```text
+"myfile.mtx"
+```
+
+would.
+
+So the clean protocol could eventually be:
+
+```text
+CREATE example.mtx
+```
+
+or simply:
+
+```text
+.mtx example
+```
+
+while still allowing arbitrary strings through the same TCP connection.
