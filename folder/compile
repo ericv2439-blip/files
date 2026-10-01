@@ -1,0 +1,1 @@
+g++ send.cpp -o send.exe -lws2_32
