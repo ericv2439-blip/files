@@ -1,0 +1,249 @@
+#define _WIN32_WINNT 0x0601
+
+#include <windows.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <string>
+
+#pragma comment(lib, "ws2_32.lib")
+
+namespace fs = std::filesystem;
+
+constexpr int PORT = 8765;
+
+// ------------------------------------------------------------
+// RECEIVER
+// ------------------------------------------------------------
+
+int runReceiver()
+{
+    WSADATA wsa{};
+
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
+        return 1;
+
+    SOCKET server = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+    if (server == INVALID_SOCKET)
+    {
+        WSACleanup();
+        return 1;
+    }
+
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(PORT);
+
+    int yes = 1;
+
+    setsockopt(
+        server,
+        SOL_SOCKET,
+        SO_REUSEADDR,
+        reinterpret_cast<char*>(&yes),
+        sizeof(yes)
+    );
+
+    if (bind(
+        server,
+        reinterpret_cast<sockaddr*>(&address),
+        sizeof(address)
+    ) == SOCKET_ERROR)
+    {
+        closesocket(server);
+        WSACleanup();
+        return 1;
+    }
+
+    if (listen(server, SOMAXCONN) == SOCKET_ERROR)
+    {
+        closesocket(server);
+        WSACleanup();
+        return 1;
+    }
+
+    std::cout
+        << "StringReceiver running on TCP port "
+        << PORT
+        << "\n";
+
+    while (true)
+    {
+        SOCKET client = accept(
+            server,
+            nullptr,
+            nullptr
+        );
+
+        if (client == INVALID_SOCKET)
+            continue;
+
+        std::string message;
+
+        char buffer[4096];
+
+        while (true)
+        {
+            int received = recv(
+                client,
+                buffer,
+                sizeof(buffer),
+                0
+            );
+
+            if (received <= 0)
+                break;
+
+            message.append(
+                buffer,
+                received
+            );
+        }
+
+        if (!message.empty())
+        {
+            std::cout
+                << "Received: "
+                << message
+                << "\n";
+        }
+
+        closesocket(client);
+    }
+
+    closesocket(server);
+    WSACleanup();
+
+    return 0;
+}
+
+
+// ------------------------------------------------------------
+// INSTALLER
+// ------------------------------------------------------------
+
+int runInstaller()
+{
+    char executablePath[MAX_PATH]{};
+
+    GetModuleFileNameA(
+        nullptr,
+        executablePath,
+        MAX_PATH
+    );
+
+    fs::path installDirectory =
+        fs::path(getenv("LOCALAPPDATA"))
+        / "StringReceiver";
+
+    try
+    {
+        fs::create_directories(
+            installDirectory
+        );
+    }
+    catch (...)
+    {
+        std::cerr
+            << "Could not create installation directory.\n";
+
+        return 1;
+    }
+
+    /*
+        The executable copies itself into the installation
+        directory.
+
+        The installed copy is then launched with --server.
+    */
+
+    fs::path installedExecutable =
+        installDirectory
+        / "StringReceiver.exe";
+
+    try
+    {
+        fs::copy_file(
+            executablePath,
+            installedExecutable,
+            fs::copy_options::overwrite_existing
+        );
+    }
+    catch (const std::exception& e)
+    {
+        std::cerr
+            << "Installation failed: "
+            << e.what()
+            << "\n";
+
+        return 1;
+    }
+
+    std::cout
+        << "Installed to:\n"
+        << installedExecutable
+        << "\n";
+
+    // Start installed receiver
+    STARTUPINFOA startupInfo{};
+    PROCESS_INFORMATION processInfo{};
+
+    startupInfo.cb = sizeof(startupInfo);
+
+    std::string command =
+        "\"" +
+        installedExecutable.string() +
+        "\" --server";
+
+    if (!CreateProcessA(
+        nullptr,
+        command.data(),
+        nullptr,
+        nullptr,
+        FALSE,
+        CREATE_NEW_CONSOLE,
+        nullptr,
+        nullptr,
+        &startupInfo,
+        &processInfo
+    ))
+    {
+        std::cerr
+            << "Could not start receiver.\n";
+
+        return 1;
+    }
+
+    CloseHandle(processInfo.hProcess);
+    CloseHandle(processInfo.hThread);
+
+    std::cout
+        << "\nStringReceiver started.\n";
+
+    return 0;
+}
+
+
+// ------------------------------------------------------------
+// MAIN
+// ------------------------------------------------------------
+
+int main(int argc, char* argv[])
+{
+    // Installed copy runs as server
+    if (
+        argc >= 2 &&
+        std::string(argv[1]) == "--server"
+    )
+    {
+        return runReceiver();
+    }
+
+    // Original executable acts as installer
+    return runInstaller();
+}
