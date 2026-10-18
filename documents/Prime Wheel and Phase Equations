@@ -1,0 +1,242 @@
+# PRIME ATLAS
+
+Mathematical Foundations — Scientific Formulation v1.0
+
+Subject: Prime wheel geometry, modular phase oscillators, resonance detection, and recursive arithmetic structure.
+
+Objective: Establish a unified mathematical system describing the distribution of integers that survive successive prime-factor elimination.
+
+## I. Fundamental definitions
+
+Let \\(p_k\\) denote the \\(k\\)-th prime, with \\(p_1=2\\).
+
+Define the primorial wheel modulus:
+
+\\[ \boxed{W_k=\prod\_{j=1}^{k}p_j} \\]
+
+Define its surviving residue set:
+
+\\[ \boxed{ \mathcal R_k= \\{r\in\\{1,\ldots,W_k\\}:\gcd(r,W_k)=1\\} } \\]
+
+The number of survivors is
+
+\\[ \boxed{ S_k=|\mathcal R_k|=\varphi(W_k) =\prod\_{j=1}^{k}(p_j-1). } \\]
+
+The surviving integers are precisely those not divisible by any of the first \\(k\\) primes.
+
+## II. Wheel geometry and evolution
+
+Represent the ordered survivors as
+
+\\[ 1=r_1\<r_2<\cdots\<r\_{S_k}\<W_k. \\]
+
+Define the cyclic gap sequence:
+
+\\[ \boxed{ g_i= \begin{cases} r\_{i+1}-r_i,&i\<S_k,\\\ W_k+r_1-r\_{S_k},&i=S_k. \end{cases} } \\]
+
+Two fundamental identities follow:
+
+\\[ \boxed{ \sum\_{i=1}^{S_k}g_i=W_k } \\]
+
+\\[ \boxed{ W\_{k+1}=p\_{k+1}W_k,\qquad S\_{k+1}=(p\_{k+1}-1)S_k. } \\]
+
+The recursive wheel transformation consists of replicating the old residue pattern \\(p\_{k+1}\\) times and removing multiples of \\(p\_{k+1}\\).
+
+Example: wheel evolution
+
+# 6
+
+2 · 3
+
+2 survivors
+
+# 30
+
+2 · 3 · 5
+
+8 survivors
+
+# 210
+
+2 · 3 · 5 · 7
+
+48 survivors
+
+Wheel 30 — one period, with surviving residues highlighted
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+8
+
+9
+
+10
+
+11
+
+12
+
+13
+
+14
+
+15
+
+16
+
+17
+
+18
+
+19
+
+20
+
+21
+
+22
+
+23
+
+24
+
+25
+
+26
+
+27
+
+28
+
+29
+
+30
+
+Green cells survive elimination by 2, 3, and 5. A survivor is a prime candidate, not necessarily a prime.
+
+## III. Modular phase equations
+
+For integer \\(n\\) and prime modulus \\(p\\), define the phase oscillator:
+
+\\[ \boxed{\theta_p(n)=\frac{2\pi n}{p}} \\]
+
+Its complex state is
+
+\\[ \boxed{z_p(n)=e^{i\theta_p(n)}}. \\]
+
+Define the phase distance from perfect alignment:
+
+\\[ \boxed{\delta_p(n)=1-\cos\theta_p(n)}. \\]
+
+Then
+
+\\[ \boxed{ p\mid n \iff z_p(n)=1 \iff\delta_p(n)=0. } \\]
+
+The exact modular resonance projector is
+
+\\[ \boxed{ D_p(n)=\frac1p\sum\_{j=0}^{p-1} e^{2\pi ijn/p} =\mathbf1\_{p\mid n}. } \\]
+
+This eliminates ambiguity from numerical trigonometric approximation.
+
+## IV. Coupled wheel-phase system
+
+Define the wheel survival indicator:
+
+\\[ \boxed{ \chi_k(n)=\prod\_{j=1}^{k}(1-D\_{p_j}(n)). } \\]
+
+Consequently,
+
+\\[ \boxed{ \chi_k(n)= \begin{cases} 1,&\gcd(n,W_k)=1,\\\ 0,&\gcd(n,W_k)>1. \end{cases} } \\]
+
+The exact recursive phase elimination law is
+
+\\[ \boxed{ \chi\_{k+1}(n) =\chi_k(n)\left(1-D\_{p\_{k+1}}(n)\right). } \\]
+
+For \\(n\ge2\\), primality follows at the square-root boundary:
+
+\\[ \boxed{ n\text{ prime} \iff \prod\_{p\le\sqrt n}(1-D_p(n))=1. } \\]
+
+## V. Collective interference equations
+
+Introduce real weights \\(w_j\\), and define the collective complex phase field:
+
+\\[ \boxed{ Z_k(n)=\sum\_{j=1}^{k}w_je^{2\pi in/p_j}. } \\]
+
+Its Cartesian components are
+
+\\[ \boxed{ A_k(n)=\sum\_{j=1}^{k}w_j\cos\frac{2\pi n}{p_j}, \quad B_k(n)=\sum\_{j=1}^{k}w_j\sin\frac{2\pi n}{p_j}. } \\]
+
+The resulting amplitude and angular phase are
+
+\\[ \boxed{ \rho_k(n)=|Z_k(n)|,\qquad \phi_k(n)=\arg Z_k(n), } \\]
+
+where \\(\phi_k(n)\\) is undefined when \\(Z_k(n)=0\\).
+
+The recursive interference law is
+
+\\[ \boxed{ Z\_{k+1}(n)=Z_k(n)+ w\_{k+1}e^{2\pi in/p\_{k+1}}. } \\]
+
+For nonzero rational weights, the field uniquely identifies residues modulo \\(W_k\\) in exact arithmetic:
+
+\\[ \boxed{ Z_k(a)=Z_k(b)\iff a\equiv b\pmod{W_k}. } \\]
+
+This injectivity is an information-preservation property, not a computational-efficiency result.
+
+## VI. Global Fourier representation
+
+The wheel indicator admits the exact expansion
+
+\\[ \boxed{ \chi_k(n)= \frac1{W_k}\sum\_{h=0}^{W_k-1} c\_{W_k}(h)e^{2\pi ihn/W_k}, } \\]
+
+where the Ramanujan sum is
+
+\\[ \boxed{ c_W(h)= \sum\_{\substack{1\le r\le W\\\\\gcd(r,W)=1}} e^{2\pi ihr/W}. } \\]
+
+For the squarefree modulus \\(W_k\\),
+
+\\[ \boxed{ c\_{W_k}(h)=\prod\_{j=1}^{k}c\_{p_j}(h) } \\]
+
+with
+
+\\[ c_p(h)= \begin{cases} p-1,&p\mid h,\\\ -1,&p\nmid h. \end{cases} \\]
+
+This establishes an exact equivalence between the multiplicative wheel and its additive Fourier representation.
+
+## VII. Unified mathematical system
+
+The Prime Atlas can now be summarized by five coupled equations:
+
+\\[ \boxed{ \begin{aligned} W\_{k+1}&=p\_{k+1}W_k\\\\[4pt] S\_{k+1}&=(p\_{k+1}-1)S_k\\\\[4pt] z_p(n)&=e^{2\pi in/p}\\\\[4pt] \chi\_{k+1}(n)&=\chi_k(n)(1-D\_{p\_{k+1}}(n))\\\\[4pt] Z\_{k+1}(n)&=Z_k(n)+w\_{k+1}z\_{p\_{k+1}}(n) \end{aligned} } \\]
+
+with initial conditions
+
+\\[ \boxed{ W_0=1,\quad S_0=1,\quad \chi_0(n)=1,\quad Z_0(n)=0. } \\]
+
+## VIII. Scientific status
+
+| Mathematical component                           | Status          |
+| ------------------------------------------------ | --------------- |
+| Wheel construction and gap identities            | Established     |
+| Modular phase resonance                          | Established     |
+| Recursive prime elimination                      | Established     |
+| Fourier wheel reconstruction                     | Established     |
+| Rational-weight interference injectivity         | Established     |
+| Efficient phase decoding                         | Open            |
+| Asymptotic separation bounds                     | Open            |
+| Advantage over conventional primality algorithms | Not established |
+
+Fundamental interpretation: The Prime Atlas is a discrete arithmetic dynamical system in which prime factors generate modular exclusion constraints. Wheel geometry describes the surviving integers, phase functions encode divisibility, and collective interference encodes relationships among modular states.
+
+The next formal stage is to derive phase-correlation evolution equations connecting wheel gaps, modular intersections, and higher-order interference. These could reveal structure beyond the individual resonance conditions without presupposing a computational breakthrough.
