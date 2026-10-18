@@ -1,0 +1,68 @@
+# FSHD — Expanded Research Roadmap
+
+Objective: Investigate whether reversible partial cellular stasis, selective molecular protection, and muscle rehabilitation can slow or reverse FSHD-related degeneration.
+
+1. Phase 1 — Genetic Investigation
+
+   Compare healthy, affected, and relatively resistant muscle tissue. Study DUX4 expression and why different muscle groups exhibit unequal vulnerability.
+
+   Outcome: Identify naturally occurring protective mechanisms.
+2. Phase 2 — Cellular Stasis
+
+   Investigate selective metabolic suppression while preserving ATP production, protein maintenance, and cellular repair.
+
+   Compare continuous low-intensity stasis against reversible protection–recovery cycles.
+
+   Outcome: Find a theoretical protective state that avoids accelerating atrophy.
+3. Phase 3 — Muscular Rehabilitation
+
+   Investigate exercise, mechanical loading, electrical stimulation, and circulation.
+
+   Compare whether stimulation preserves function, promotes recovery, or increases cellular injury.
+
+   Outcome: Determine safe conditions for muscle activation.
+4. Phase 4 — Reversibility of Degeneration
+
+   Distinguish surviving but weakened muscle fibers from irreversibly lost tissue.
+
+   Investigate natural regeneration and whether suppressing DUX4 permits recovery without additional treatment.
+
+   Outcome: Establish which aspects of degeneration can potentially be reversed.
+5. Phase 5 — Molecular Engineering
+
+   Investigate compounds that selectively bind relevant molecular targets, protective biochemical pathways, and delivery systems.
+
+   Evaluate creatine-related chemistry for energy support separately from its unproven potential as a carrier.
+
+   Outcome: Identify plausible protective and regenerative candidates.
+6. Phase 6 — Integrated Treatment Design
+
+   Model combinations of DUX4 suppression, reversible metabolic protection, muscle recovery, and targeted molecular delivery.
+
+   Outcome: Determine whether combined strategies outperform individual approaches.
+7. Phase 7 — Experimental Validation
+
+   Progress from computational simulations to ethically sourced cell models, qualified laboratory studies, and eventually regulated preclinical research.
+
+   Outcome: Demonstrate reproducible protection, functional improvement, and acceptable safety.
+8. Phase 8 — XPRIZE Translation
+
+   Review the current FSHD Bonus Prize requirements and develop appropriate partnerships for clinical research, measurement, funding, and regulatory review.
+
+   Outcome: Establish whether the invention could qualify for clinical evaluation and competition submission.
+
+## Additional research principles
+
+- Hibernation biology: Investigate how certain mammals preserve muscle despite reduced metabolism and prolonged inactivity.
+- Selective protection: Suppress damaging processes without suppressing essential cellular maintenance.
+- Resistant tissue: Look for protective mechanisms already operating in less affected muscles.
+- Measurable outcomes: Track DUX4 activity, cell survival, muscle quality, strength, and treatment toxicity.
+- Falsifiability: Abandon or revise any intervention that worsens degeneration or fails to outperform existing approaches.
+
+## Central hypothesis
+
+\\[ \boxed{ \begin{aligned} \text{FSHD therapy}={}&\text{Damage suppression}\\\ &+\text{Cellular preservation}\\\ &+\text{Functional restoration} \end{aligned}} \\]
+
+These are research goals, not yet demonstrated treatment effects.
+
+Our first actionable project: Build a computational model comparing three muscle populations—healthy, FSHD-affected, and relatively resistant—to determine which biological differences could support a reversible protective state.
