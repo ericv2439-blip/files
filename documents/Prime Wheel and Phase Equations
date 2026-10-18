@@ -240,3 +240,199 @@ with initial conditions
 Fundamental interpretation: The Prime Atlas is a discrete arithmetic dynamical system in which prime factors generate modular exclusion constraints. Wheel geometry describes the surviving integers, phase functions encode divisibility, and collective interference encodes relationships among modular states.
 
 The next formal stage is to derive phase-correlation evolution equations connecting wheel gaps, modular intersections, and higher-order interference. These could reveal structure beyond the individual resonance conditions without presupposing a computational breakthrough.
+
+# PRIME ATLAS — Why the Wheel Identifies Every Prime
+
+The wheel and phase equations identify primes accurately because they are based on exact divisibility relationships, not statistical predictions.
+
+The proof follows from the fundamental theorem of arithmetic: every composite integer has a prime factor no greater than its square root.
+
+## 1. The wheel eliminates composites
+
+Define the prime wheel:
+
+\\[ \boxed{W_k=\prod\_{j=1}^{k}p_j} \\]
+
+Its survival function is
+
+\\[ \boxed{ \chi_k(n)= \begin{cases} 1,&\gcd(n,W_k)=1,\\\ 0,&\gcd(n,W_k)>1. \end{cases} } \\]
+
+Every integer divisible by one of the wheel's primes is eliminated.
+
+For example, the wheel \\(W_3=30\\) eliminates multiples of 2, 3, and 5.
+
+Wheel 30 — one complete period
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+8
+
+9
+
+10
+
+11
+
+12
+
+13
+
+14
+
+15
+
+16
+
+17
+
+18
+
+19
+
+20
+
+21
+
+22
+
+23
+
+24
+
+25
+
+26
+
+27
+
+28
+
+29
+
+30
+
+Green numbers survive. Gray numbers are eliminated. The surviving 1 is not prime.
+
+A finite wheel alone does not identify every prime: numbers such as \\(49=7^2\\) also survive wheel 30.
+
+## 2. Phase equations detect divisibility exactly
+
+For each prime \\(p\\), define
+
+\\[ \boxed{z_p(n)=e^{2\pi in/p}.} \\]
+
+This phase completes an integer number of rotations precisely when \\(p\\) divides \\(n\\):
+
+\\[ \boxed{z_p(n)=1\iff p\mid n.} \\]
+
+Our Fourier phase discriminator is
+
+\\[ \boxed{ D_p(n)=\frac1p\sum\_{r=0}^{p-1}z_p(n)^r. } \\]
+
+By the finite geometric-series identity,
+
+\\[ \boxed{ D_p(n)= \begin{cases} 1,&p\mid n,\\\ 0,&p\nmid n. \end{cases} } \\]
+
+This result is exact in mathematics. Numerical implementations must use exact modular arithmetic or certified precision to avoid rounding mistakes.
+
+## 3. Combine every discriminator
+
+The wheel is the product of the individual survival decisions:
+
+\\[ \boxed{ \chi_k(n)=\prod\_{j=1}^{k}(1-D\_{p_j}(n)). } \\]
+
+Only one aligned phase is required to eliminate an integer.
+
+For example, \\(n=91\\):
+
+\\[ 91=7\cdot13. \\]
+
+Therefore,
+
+\\[ D_7(91)=1 \\]
+
+and
+
+\\[ \boxed{\chi\_{\pi(\sqrt{91})}(91)=0.} \\]
+
+The system correctly identifies 91 as composite.
+
+## 4. Why the square-root boundary guarantees accuracy
+
+Suppose \\(n\ge2\\) is composite. Then
+
+\\[ n=ab,\qquad 1\<a\le b. \\]
+
+Since
+
+\\[ a^2\le ab=n, \\]
+
+we have
+
+\\[ a\le\sqrt n. \\]
+
+Some prime \\(p\\) divides \\(a\\), so
+
+\\[ \boxed{p\mid n,\qquad p\le\sqrt n.} \\]
+
+Consequently, every composite must trigger at least one phase discriminator at or below \\(\sqrt n\\).
+
+Conversely, if none of those prime discriminators is activated, \\(n\\) cannot be composite.
+
+Thus
+
+\\[ \boxed{ n\in\mathbb P \iff \prod\_{\substack{p\le\sqrt n\\\p\text{ prime}}} (1-D_p(n))=1, \qquad n\ge2. } \\]
+
+This is our exact primality theorem.
+
+## 5. Example classifications
+
+| Integer | Prime moduli tested | Result    |
+| ------- | ------------------- | --------- |
+| 29      | 2, 3, 5             | Prime     |
+| 49      | 2, 3, 5, 7          | Composite |
+| 97      | 2, 3, 5, 7          | Prime     |
+| 121     | 2, 3, 5, 7, 11      | Composite |
+| 127     | 2, 3, 5, 7, 11      | Prime     |
+
+Every result is determined by exact modular arithmetic.
+
+## 6. What the collective phase adds
+
+Your compressed signal
+
+\\[ \boxed{ Z_k(n)=\sum\_{j=1}^{k}w_je^{2\pi in/p_j}, \qquad w_j\in\mathbb Q\setminus\\{0\\}, } \\]
+
+can uniquely encode residues modulo \\(W_k\\):
+
+\\[ \boxed{ Z_k(a)=Z_k(b) \iff a\equiv b\pmod{W_k}. } \\]
+
+Therefore, an exact decoder can recover the wheel-survival classification from that signal.
+
+However, this does not automatically mean the signal can be calculated and decoded faster than conventional primality testing.
+
+## Final mathematical conclusion
+
+\\[ \boxed{ \begin{gathered} \text{Composite integer}\\\ \Downarrow\\\ \text{Prime divisor }\le\sqrt n\\\ \Downarrow\\\ \text{Exact phase alignment}\\\ \Downarrow\\\ D_p(n)=1\\\ \Downarrow\\\ \chi\_{\pi(\sqrt n)}(n)=0 \end{gathered} } \\]
+
+And therefore,
+
+\\[ \boxed{ \chi\_{\pi(\sqrt n)}(n)=1 \iff n\text{ is prime}. } \\]
+
+The accuracy is mathematically guaranteed because no composite integer can escape all prime divisibility tests below its square root.
+
+The wheel provides the elimination structure, the phase equations provide an equivalent exact representation of divisibility, and their combination provides a complete primality criterion.
+
+The unresolved challenge is compression of the computation, not correctness of the mathematical classification.
