@@ -1,0 +1,614 @@
+import os
+import io
+import json
+import time
+import base64
+import threading
+from collections import deque
+
+import pyautogui
+from PIL import Image, ImageDraw, ImageFont
+from dotenv import load_dotenv
+from openai import OpenAI
+
+
+# ==========================================
+# AION NEXUS — COMPUTER CONTROL AGENT
+# ==========================================
+
+load_dotenv()
+
+client = OpenAI()
+
+MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+
+SCREENSHOT_INTERVAL = 1.0
+MAX_ACTIONS = 200
+MAX_HISTORY = 12
+
+# Normalized coordinates: 0–1000
+COORD_MAX = 1000
+
+# Screenshot processing
+MAX_IMAGE_WIDTH = 1280
+
+# Emergency stop
+pyautogui.FAILSAFE = True
+pyautogui.PAUSE = 0.15
+
+stop_event = threading.Event()
+screenshot_lock = threading.Lock()
+
+latest_screenshot = None
+latest_screenshot_time = 0
+
+history = deque(maxlen=MAX_HISTORY)
+
+
+# ==========================================
+# SYSTEM INSTRUCTIONS
+# ==========================================
+
+SYSTEM_PROMPT = """
+You are AION, an AI computer-control agent.
+
+You operate a computer using screenshots,
+mouse commands, and keyboard commands.
+
+Your objective is to complete the user's
+task through visual observation and
+carefully selected actions.
+
+SCREEN COORDINATES:
+
+The screenshot contains a coordinate grid.
+
+Coordinates are normalized:
+
+Top-left:     (0, 0)
+Top-right:    (1000, 0)
+Bottom-left:  (0, 1000)
+Bottom-right: (1000, 1000)
+
+Use these coordinates when controlling
+the mouse.
+
+AVAILABLE ACTIONS:
+
+move:
+    Move the mouse to x,y.
+
+click:
+    Left-click at x,y.
+
+double_click:
+    Double-click at x,y.
+
+right_click:
+    Right-click at x,y.
+
+drag:
+    Drag from x,y to x2,y2.
+
+scroll:
+    Scroll vertically by amount.
+
+type:
+    Type text.
+
+press:
+    Press a single keyboard key.
+
+hotkey:
+    Press a keyboard shortcut.
+
+wait:
+    Wait for the interface to update.
+
+done:
+    Declare the task completed.
+
+IMPORTANT RULES:
+
+1. Observe the screenshot before acting.
+2. Prefer one meaningful action per cycle.
+3. Verify the result of important actions.
+4. Never assume an action succeeded.
+5. Avoid repeating failed actions blindly.
+6. Use the coordinate grid.
+7. Keep actions small and reversible.
+8. If uncertain, inspect before proceeding.
+9. Never execute commands that could
+   damage the computer.
+10. Never attempt to bypass security controls.
+11. Never make purchases, execute trades,
+    transfer money, delete files, or submit
+    sensitive information without explicit
+    human approval.
+12. If the task is complete, return "done".
+
+You must return structured JSON matching
+the required response schema.
+"""
+
+
+# ==========================================
+# SCREENSHOT CAPTURE
+# ==========================================
+
+def screenshot_worker():
+    global latest_screenshot
+    global latest_screenshot_time
+
+    while not stop_event.is_set():
+        try:
+            image = pyautogui.screenshot()
+
+            with screenshot_lock:
+                latest_screenshot = image
+                latest_screenshot_time = time.time()
+
+        except Exception as e:
+            print("Screenshot error:", e)
+
+        stop_event.wait(SCREENSHOT_INTERVAL)
+
+
+# ==========================================
+# COORDINATE GRID
+# ==========================================
+
+def add_coordinate_grid(image):
+    image = image.copy().convert("RGB")
+
+    original_width, original_height = image.size
+
+    if original_width > MAX_IMAGE_WIDTH:
+        ratio = MAX_IMAGE_WIDTH / original_width
+
+        image = image.resize(
+            (
+                MAX_IMAGE_WIDTH,
+                int(original_height * ratio)
+            ),
+            Image.Resampling.LANCZOS
+        )
+
+    width, height = image.size
+
+    draw = ImageDraw.Draw(image)
+
+    # Grid every 100 normalized units
+    for value in range(0, 1001, 100):
+
+        x = int(value / COORD_MAX * (width - 1))
+        y = int(value / COORD_MAX * (height - 1))
+
+        draw.line(
+            [(x, 0), (x, height)],
+            fill=(0, 255, 100),
+            width=1
+        )
+
+        draw.line(
+            [(0, y), (width, y)],
+            fill=(0, 255, 100),
+            width=1
+        )
+
+        draw.text(
+            (min(x + 3, width - 35), 5),
+            str(value),
+            fill=(0, 255, 100)
+        )
+
+        draw.text(
+            (5, min(y + 3, height - 15)),
+            str(value),
+            fill=(0, 255, 100)
+        )
+
+    return image
+
+
+# ==========================================
+# IMAGE ENCODING
+# ==========================================
+
+def encode_image(image):
+    buffer = io.BytesIO()
+
+    image.save(
+        buffer,
+        format="JPEG",
+        quality=75
+    )
+
+    encoded = base64.b64encode(
+        buffer.getvalue()
+    ).decode("utf-8")
+
+    return f"data:image/jpeg;base64,{encoded}"
+
+
+# ==========================================
+# COORDINATE CONVERSION
+# ==========================================
+
+def to_screen_coordinates(x, y):
+    width, height = pyautogui.size()
+
+    x = max(0, min(COORD_MAX, int(x)))
+    y = max(0, min(COORD_MAX, int(y)))
+
+    screen_x = round(
+        x / COORD_MAX * (width - 1)
+    )
+
+    screen_y = round(
+        y / COORD_MAX * (height - 1)
+    )
+
+    return screen_x, screen_y
+
+
+# ==========================================
+# STRUCTURED ACTION SCHEMA
+# ==========================================
+
+ACTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "action": {
+            "type": "string",
+            "enum": [
+                "move",
+                "click",
+                "double_click",
+                "right_click",
+                "drag",
+                "scroll",
+                "type",
+                "press",
+                "hotkey",
+                "wait",
+                "done"
+            ]
+        },
+        "x": {"type": "integer"},
+        "y": {"type": "integer"},
+        "x2": {"type": "integer"},
+        "y2": {"type": "integer"},
+        "text": {"type": "string"},
+        "key": {"type": "string"},
+        "keys": {
+            "type": "array",
+            "items": {"type": "string"}
+        },
+        "amount": {"type": "integer"},
+        "reason": {"type": "string"}
+    },
+    "required": [
+        "action", "x", "y", "x2", "y2",
+        "text", "key", "keys", "amount", "reason"
+    ],
+    "additionalProperties": False
+}
+
+
+# ==========================================
+# AI REASONING
+# ==========================================
+
+def ask_ai(goal, screenshot):
+
+    image = add_coordinate_grid(screenshot)
+
+    encoded_image = encode_image(image)
+
+    recent_history = json.dumps(
+        list(history),
+        ensure_ascii=False
+    )
+
+    response = client.responses.create(
+        model=MODEL,
+
+        instructions=SYSTEM_PROMPT,
+
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            f"OBJECTIVE:\n{goal}\n\n"
+                            f"RECENT ACTION HISTORY:\n"
+                            f"{recent_history}\n\n"
+                            "Examine the current screenshot "
+                            "and choose the next action."
+                        )
+                    },
+                    {
+                        "type": "input_image",
+                        "image_url": encoded_image,
+                        "detail": "high"
+                    }
+                ]
+            }
+        ],
+
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": "computer_action",
+                "strict": True,
+                "schema": ACTION_SCHEMA
+            }
+        }
+    )
+
+    return json.loads(response.output_text)
+
+
+# ==========================================
+# ACTION EXECUTION
+# ==========================================
+
+ALLOWED_KEYS = {
+    "enter", "esc", "tab", "space",
+    "backspace", "delete",
+    "up", "down", "left", "right",
+    "home", "end", "pageup", "pagedown",
+    "ctrl", "shift", "alt", "command",
+    "a", "c", "v", "x", "z", "y", "s",
+    "f", "n", "t", "w", "r",
+    "f1", "f2", "f3", "f4", "f5",
+    "f6", "f7", "f8", "f9", "f10",
+    "f11", "f12"
+}
+
+BLOCKED_SHORTCUTS = {
+    ("alt", "f4"),
+    ("ctrl", "alt", "delete"),
+    ("command", "q")
+}
+
+
+def execute_action(command):
+
+    action = command["action"]
+
+    x, y = to_screen_coordinates(
+        command["x"],
+        command["y"]
+    )
+
+    if action == "move":
+        pyautogui.moveTo(
+            x, y, duration=0.3
+        )
+
+    elif action == "click":
+        pyautogui.click(x, y)
+
+    elif action == "double_click":
+        pyautogui.doubleClick(
+            x, y, interval=0.12
+        )
+
+    elif action == "right_click":
+        pyautogui.rightClick(x, y)
+
+    elif action == "drag":
+        x2, y2 = to_screen_coordinates(
+            command["x2"],
+            command["y2"]
+        )
+
+        pyautogui.moveTo(x, y, duration=0.2)
+
+        pyautogui.dragTo(
+            x2, y2,
+            duration=0.6,
+            button="left"
+        )
+
+    elif action == "scroll":
+        amount = max(
+            -5,
+            min(5, command["amount"])
+        )
+
+        pyautogui.moveTo(x, y)
+        pyautogui.scroll(amount)
+
+    elif action == "type":
+        text = command["text"][:500]
+
+        pyautogui.write(
+            text,
+            interval=0.01
+        )
+
+    elif action == "press":
+        key = command["key"].lower()
+
+        if key not in ALLOWED_KEYS:
+            raise ValueError(
+                f"Key not permitted: {key}"
+            )
+
+        pyautogui.press(key)
+
+    elif action == "hotkey":
+        keys = [
+            key.lower()
+            for key in command["keys"]
+        ]
+
+        if not keys or len(keys) > 3:
+            raise ValueError(
+                "Invalid shortcut"
+            )
+
+        if not all(
+            key in ALLOWED_KEYS
+            for key in keys
+        ):
+            raise ValueError(
+                "Shortcut contains invalid keys"
+            )
+
+        if tuple(keys) in BLOCKED_SHORTCUTS:
+            raise ValueError(
+                "Shortcut blocked"
+            )
+
+        pyautogui.hotkey(*keys)
+
+    elif action == "wait":
+        time.sleep(1)
+
+    elif action == "done":
+        return False
+
+    else:
+        raise ValueError(
+            f"Unknown action: {action}"
+        )
+
+    return True
+
+
+# ==========================================
+# MAIN AGENT LOOP
+# ==========================================
+
+def run_agent(goal):
+
+    print("\nAION NEXUS ONLINE")
+    print("Model:", MODEL)
+    print("Objective:", goal)
+
+    print(
+        "\nEMERGENCY STOP:"
+        "\nMove mouse to top-left corner"
+        "\nor press Ctrl+C in terminal.\n"
+    )
+
+    worker = threading.Thread(
+        target=screenshot_worker,
+        daemon=True
+    )
+
+    worker.start()
+
+    action_count = 0
+
+    try:
+        while (
+            not stop_event.is_set()
+            and action_count < MAX_ACTIONS
+        ):
+
+            with screenshot_lock:
+                screenshot = latest_screenshot
+                capture_time = latest_screenshot_time
+
+            if screenshot is None:
+                time.sleep(0.2)
+                continue
+
+            print(
+                f"\n[CYCLE {action_count + 1}]"
+                f" Screenshot age: "
+                f"{time.time() - capture_time:.1f}s"
+            )
+
+            command = ask_ai(
+                goal,
+                screenshot
+            )
+
+            print(
+                json.dumps(
+                    command,
+                    indent=2
+                )
+            )
+
+            print(
+                "AI Reason:",
+                command["reason"]
+            )
+
+            if command["action"] == "done":
+                print("\nTASK COMPLETED")
+                break
+
+            # Require approval before every action.
+            # Remove this only in a controlled,
+            # isolated test environment.
+            approval = input(
+                "Execute action? [y/N]: "
+            ).strip().lower()
+
+            if approval != "y":
+                print("Action rejected.")
+                history.append({
+                    "action": command,
+                    "result": "REJECTED"
+                })
+                continue
+
+            try:
+                execute_action(command)
+
+                result = "EXECUTED"
+
+            except pyautogui.FailSafeException:
+                print("EMERGENCY STOP")
+                break
+
+            except Exception as e:
+                result = f"ERROR: {e}"
+
+            history.append({
+                "action": command,
+                "result": result
+            })
+
+            action_count += 1
+
+            print("Result:", result)
+
+    except KeyboardInterrupt:
+        print("\nUSER STOPPED AGENT")
+
+    finally:
+        stop_event.set()
+        worker.join(timeout=2)
+
+        print("\nAION NEXUS OFFLINE")
+
+
+# ==========================================
+# START
+# ==========================================
+
+if __name__ == "__main__":
+
+    print("=" * 45)
+    print("       AION COMPUTER AGENT")
+    print("=" * 45)
+
+    objective = input(
+        "\nWhat should AION do?\n> "
+    )
+
+    run_agent(objective)
+
+
+
